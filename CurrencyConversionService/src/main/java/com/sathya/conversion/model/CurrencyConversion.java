@@ -10,13 +10,13 @@ public class CurrencyConversion {
     private BigDecimal quantity;
     private BigDecimal totalCalculatedAmount;
     private String environment;
-
-    // Default constructor
+    
+    // Constructors
     public CurrencyConversion() {}
-
-    // Parameterized constructor
-    public CurrencyConversion(Long id, String from, String to, BigDecimal conversionMultiple, 
-                             BigDecimal quantity, BigDecimal totalCalculatedAmount, String environment) {
+    
+    public CurrencyConversion(Long id, String from, String to, 
+                            BigDecimal conversionMultiple, BigDecimal quantity, 
+                            BigDecimal totalCalculatedAmount, String environment) {
         this.id = id;
         this.from = from;
         this.to = to;
@@ -25,7 +25,7 @@ public class CurrencyConversion {
         this.totalCalculatedAmount = totalCalculatedAmount;
         this.environment = environment;
     }
-
+    
     // Getters and Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
