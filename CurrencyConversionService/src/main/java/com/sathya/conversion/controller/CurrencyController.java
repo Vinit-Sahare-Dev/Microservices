@@ -31,9 +31,6 @@ public class CurrencyController {
         
         try {
             CurrencyConversion conversion = currencyService.convertCurrency(from, to, quantity);
-            String port = environment.getProperty("local.server.port");
-            conversion.setEnvironment(port + " (service layer)");
-            
             return ResponseEntity.ok(conversion);
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(null);
