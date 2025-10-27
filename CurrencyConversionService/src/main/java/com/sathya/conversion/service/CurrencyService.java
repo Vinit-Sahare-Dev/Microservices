@@ -1,6 +1,7 @@
 package com.sathya.conversion.service;
 
 import com.sathya.conversion.model.CurrencyConversion;
+import com.sathya.conversion.model.CurrencyConversionMessage;
 import com.sathya.conversion.proxy.CurrencyExchangeProxy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +36,9 @@ public class CurrencyService {
 
     @Autowired
     private CurrencyExchangeProxy exchangeProxy;
+    
+    @Autowired
+    private MessageProducer messageProducer;
 
     public CurrencyConversion convertCurrency(String from, String to, BigDecimal quantity) {
         logger.info("Converting currency: {} to {} quantity: {}", from, to, quantity);
@@ -58,7 +62,61 @@ public class CurrencyService {
         );
         
         logger.info("Final conversion result: {}", conversion);
+        
+        // ✅ Send message to RabbitMQ
+        sendConversionMessageToQueue(conversion);
+        
         return conversion;
+    }
+    
+    /**
+     * Asynchronous conversion - just sends message to queue without waiting
+     */
+    public void convertAndSendAsync(String from, String to, BigDecimal quantity) {
+        logger.info("Queueing async conversion: {} to {} quantity: {}", from, to, quantity);
+        
+        try {
+            // Create a temporary conversion object for messaging
+            CurrencyConversion tempConversion = new CurrencyConversion();
+            tempConversion.setId(generateFallbackId());
+            tempConversion.setFrom(from);
+            tempConversion.setTo(to);
+            tempConversion.setQuantity(quantity);
+            tempConversion.setEnvironment("ASYNC_REQUEST");
+            
+            // Send to queue for async processing
+            sendConversionMessageToQueue(tempConversion);
+            
+            logger.info("✅ Async conversion queued successfully for {}/{}", from, to);
+            
+        } catch (Exception e) {
+            logger.error("❌ Failed to queue async conversion: {}", e.getMessage());
+            throw new RuntimeException("Failed to queue conversion request: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Send conversion message to RabbitMQ
+     */
+    private void sendConversionMessageToQueue(CurrencyConversion conversion) {
+        try {
+            CurrencyConversionMessage message = new CurrencyConversionMessage(
+                conversion.getId(),
+                conversion.getFrom(),
+                conversion.getTo(),
+                conversion.getQuantity(),
+                conversion.getTotalCalculatedAmount(),
+                conversion.getConversionMultiple(),
+                "CONVERSION_COMPLETED"
+            );
+            
+            messageProducer.sendConversionMessage(message);
+            logger.info("📤 Message sent to RabbitMQ for conversion ID: {}", conversion.getId());
+            
+        } catch (Exception e) {
+            logger.error("❌ Failed to send message to RabbitMQ: {}", e.getMessage());
+            // Don't throw exception - message failure shouldn't break the main conversion
+        }
     }
 
     /**
@@ -110,18 +168,17 @@ public class CurrencyService {
         logger.info("Fetching all exchange rates");
         
         try {
-            // Try to get real rates, fallback if unavailable
-            return createFallbackRatesList();
+            return getFallbackExchangeRates();
         } catch (Exception e) {
-            logger.warn("Failed to get exchange rates, using fallback: {}", e.getMessage());
-            return createFallbackRatesList();
+            logger.warn("Failed to get all exchange rates, using fallback: {}", e.getMessage());
+            return getFallbackExchangeRates();
         }
     }
     
     /**
      * Fallback for getting all exchange rates
      */
-    private List<CurrencyConversion> createFallbackRatesList() {
+    private List<CurrencyConversion> getFallbackExchangeRates() {
         List<CurrencyConversion> rates = new ArrayList<>();
         
         FALLBACK_RATES.forEach((pair, rate) -> {
@@ -133,7 +190,7 @@ public class CurrencyService {
                 rate,
                 BigDecimal.ONE,
                 rate,
-                "🔴 FALLBACK RATES - Service Unavailable"
+                "FALLBACK RATES"
             ));
         });
         
@@ -161,21 +218,29 @@ public class CurrencyService {
         List<CurrencyConversion> results = new ArrayList<>();
         
         for (String targetCurrency : targetCurrencies) {
-            CurrencyConversion conversion = callExchangeServiceOrFallback(from, targetCurrency);
-            BigDecimal totalAmount = amount.multiply(conversion.getConversionMultiple())
-                                         .setScale(2, RoundingMode.HALF_UP);
-            
-            CurrencyConversion conversionWithAmount = new CurrencyConversion(
-                conversion.getId(),
-                from,
-                targetCurrency,
-                conversion.getConversionMultiple(),
-                amount,
-                totalAmount,
-                conversion.getEnvironment()
-            );
-            
-            results.add(conversionWithAmount);
+            try {
+                CurrencyConversion conversion = convertCurrency(from, targetCurrency, amount);
+                results.add(conversion);
+            } catch (Exception e) {
+                logger.warn("Failed to convert {} to {}: {}", from, targetCurrency, e.getMessage());
+                
+                // Fallback for individual conversion failure in bulk
+                CurrencyConversion fallbackConversion = createFallbackResponse(from, targetCurrency);
+                BigDecimal totalAmount = amount.multiply(fallbackConversion.getConversionMultiple())
+                                             .setScale(2, RoundingMode.HALF_UP);
+                
+                CurrencyConversion conversionWithAmount = new CurrencyConversion(
+                    fallbackConversion.getId(),
+                    from,
+                    targetCurrency,
+                    fallbackConversion.getConversionMultiple(),
+                    amount,
+                    totalAmount,
+                    "Fallback - Individual conversion failed"
+                );
+                
+                results.add(conversionWithAmount);
+            }
         }
         
         return results;
@@ -217,6 +282,45 @@ public class CurrencyService {
     public void deleteExchangeRate(Long id) {
         logger.info("Deleting exchange rate with id: {}", id);
         logger.info("Successfully deleted exchange rate with id: {}", id);
+    }
+    
+    // ==================== RABBITMQ METHODS ====================
+    
+    /**
+     * Send test message to RabbitMQ
+     */
+    public void sendTestMessage() {
+        try {
+            CurrencyConversionMessage testMessage = new CurrencyConversionMessage(
+                9999L,
+                "TEST",
+                "TEST",
+                BigDecimal.valueOf(100),
+                BigDecimal.valueOf(8300),
+                BigDecimal.valueOf(83.0),
+                "TEST_MESSAGE"
+            );
+            
+            messageProducer.sendConversionMessage(testMessage);
+            logger.info("✅ Test message sent to RabbitMQ: {}", testMessage);
+            
+        } catch (Exception e) {
+            logger.error("❌ Failed to send test message: {}", e.getMessage());
+            throw new RuntimeException("Failed to send test message to RabbitMQ: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Check RabbitMQ connection status
+     */
+    public String checkRabbitMQConnection() {
+        try {
+            // Try to send a small test message
+            sendTestMessage();
+            return "RabbitMQ Connection Status: CONNECTED ✅";
+        } catch (Exception e) {
+            return "RabbitMQ Connection Status: DISCONNECTED ❌ - " + e.getMessage();
+        }
     }
     
     /**
