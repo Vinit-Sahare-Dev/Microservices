@@ -1,0 +1,45 @@
+services:
+  eureka-server:
+    build: 
+      context: ./EurekaServer
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8761:8761"
+    volumes:
+      - ./EurekaServer/src:/app/src
+      - ./EurekaServer/pom.xml:/app/pom.xml
+    networks:
+      - microservices-net
+
+  currency-exchange:
+    build:
+      context: ./CurrencyExchangeService
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./CurrencyExchangeService/src:/app/src
+      - ./CurrencyExchangeService/pom.xml:/app/pom.xml
+    networks:
+      - microservices-net
+    depends_on:
+      - eureka-server
+
+  currency-conversion:
+    build:
+      context: ./CurrencyConversionService
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8100:8100"
+    volumes:
+      - ./CurrencyConversionService/src:/app/src
+      - ./CurrencyConversionService/pom.xml:/app/pom.xml
+    networks:
+      - microservices-net
+    depends_on:
+      - eureka-server
+      - currency-exchange
+
+networks:
+  microservices-net:
+    driver: bridge
