@@ -37,6 +37,20 @@ public class CurrencyController {
         }
     }
     
+    @GetMapping("/convert-async/from/{from}/to/{to}/quantity/{quantity}")
+    public ResponseEntity<String> convertCurrencyAsync(
+            @PathVariable String from,
+            @PathVariable String to,
+            @PathVariable BigDecimal quantity) {
+        
+        try {
+            currencyService.convertAndSendAsync(from, to, quantity);
+            return ResponseEntity.ok("Currency conversion request queued successfully. Processing asynchronously.");
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body("Failed to queue conversion request: " + e.getMessage());
+        }
+    }
+    
     @GetMapping("/exchange-rates")
     public ResponseEntity<List<CurrencyConversion>> getAllExchangeRates() {
         try {
@@ -103,6 +117,30 @@ public class CurrencyController {
             return ResponseEntity.ok(conversionWithFee);
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(null);
+        }
+    }
+    
+    // ==================== RABBITMQ TEST ENDPOINTS ====================
+    
+    @PostMapping("/send-test-message")
+    public ResponseEntity<String> sendTestMessage() {
+        try {
+            currencyService.sendTestMessage();
+            return ResponseEntity.ok("Test message sent to RabbitMQ successfully");
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Failed to send test message: " + e.getMessage());
+        }
+    }
+    
+    @GetMapping("/rabbitmq-status")
+    public ResponseEntity<String> getRabbitMQStatus() {
+        try {
+            String status = currencyService.checkRabbitMQConnection();
+            return ResponseEntity.ok(status);
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("RabbitMQ Connection Status: DISCONNECTED - " + e.getMessage());
         }
     }
     
