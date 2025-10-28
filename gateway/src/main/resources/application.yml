@@ -1,0 +1,95 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true
+      
+      routes:
+        # Currency Exchange Service Routes
+        - id: currency-exchange-service
+          uri: lb://currency-exchange-service
+          predicates:
+            - Path=/currency-exchange/**
+          filters:
+            - name: AuthenticationFilter
+        
+        # Currency Conversion Service Routes
+        - id: currency-conversion-service
+          uri: lb://currency-conversion-service
+          predicates:
+            - Path=/api/currency/**
+          filters:
+            - name: AuthenticationFilter
+        
+        # Authentication Route (No JWT required)
+        - id: auth-service
+          uri: lb://api-gateway
+          predicates:
+            - Path=/auth/**
+          filters:
+            - StripPrefix=0
+        
+        # Eureka Dashboard (Optional - can be protected or open)
+        - id: eureka-server
+          uri: http://localhost:8761
+          predicates:
+            - Path=/eureka/**
+      
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+      
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOrigins: "*"
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - OPTIONS
+            allowedHeaders: "*"
+            exposedHeaders:
+              - Authorization
+
+# Eureka Client Configuration
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+    register-with-eureka: true
+    fetch-registry: true
+  instance:
+    prefer-ip-address: true
+    hostname: localhost
+
+# JWT Configuration
+jwt:
+  secret: YourSuperSecretKeyForJWTTokenGenerationMustBeLongEnoughForHS512Algorithm
+  expiration: 86400000  # 24 hours in milliseconds
+
+# Actuator Configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,gateway
+  endpoint:
+    health:
+      show-details: always
+
+# Logging
+logging:
+  level:
+    com.sathya.gateway: DEBUG
+    org.springframework.cloud.gateway: DEBUG
+    org.springframework.security: DEBUG
+    reactor.netty: INFO
